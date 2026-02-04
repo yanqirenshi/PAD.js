@@ -1,134 +1,133 @@
-import React, { useMemo } from 'react';
-import type { PadNode } from '../types';
-import { calculateLayout, type LayoutNode } from '../utils/layout';
-import { IfRenderer } from './renderers/IfRenderer';
-import { StartRenderer } from './renderers/StartRenderer';
-import { EndRenderer } from './renderers/EndRenderer';
-import { FunctionHeaderRenderer } from './renderers/FunctionHeaderRenderer';
-import { StartBlockGeometry } from './renderers/StartBlockGeometry';
+/**
+ * @packageDocumentation
+ * PAD図をD3.jsで描画するReactコンポーネント
+ */
 
-interface D3PadRendererProps {
+import { useRef, useEffect, useMemo } from 'react';
+import * as d3 from 'd3';
+import type { PadNode } from '../types';
+import { calculateLayout } from '../utils/layout';
+import { PadNodeRenderer } from './PadNodeRenderer';
+
+/**
+ * D3PadRendererコンポーネントのプロパティ
+ */
+export interface D3PadRendererProps {
+    /**
+     * 描画するPADノードのルート
+     */
     node: PadNode;
 }
 
+/**
+ * PAD（Problem Analysis Diagram）をD3.jsで描画するReactコンポーネント
+ * 
+ * @remarks
+ * このコンポーネントは以下の機能を提供します:
+ * - PadNodeからLayoutNodeへのレイアウト計算
+ * - D3.jsによるSVG描画
+ * - データ結合パターン（enter/update/exit）による効率的な再描画
+ * 
+ * @example
+ * ```tsx
+ * const padNode: PadNode = { type: 'block', label: 'main', children: [] };
+ * <D3PadRenderer node={padNode} />
+ * ```
+ * 
+ * @param props - コンポーネントのプロパティ
+ * @returns PAD図を描画するSVG要素を含むdiv
+ */
 export const D3PadRenderer: React.FC<D3PadRendererProps> = ({ node }) => {
+    /** SVG要素への参照 */
+    const svgRef = useRef<SVGSVGElement>(null);
+
+    /** PadNodeRendererインスタンスへの参照 */
+    const rendererRef = useRef<PadNodeRenderer | null>(null);
+
+    /** ズーム動作への参照 */
+    const zoomRef = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null);
+
+    /** ルートグループへの参照 */
+    const rootGRef = useRef<d3.Selection<SVGGElement, unknown, null, undefined> | null>(null);
+
+    /** 計算されたレイアウト（nodeが変更された時のみ再計算） */
     const layout = useMemo(() => calculateLayout(node), [node]);
 
+    /**
+     * URLクエリパラメータから初期のtransformを取得
+     */
+    const getInitialTransform = () => {
+        const params = new URLSearchParams(window.location.search);
+        const x = parseFloat(params.get('x') ?? '10');
+        const y = parseFloat(params.get('y') ?? '10');
+        const zoom = parseFloat(params.get('zoom') ?? '1');
+        return d3.zoomIdentity.translate(x, y).scale(zoom);
+    };
+
+    /**
+     * URLクエリパラメータを更新
+     */
+    const updateUrlParams = (transform: d3.ZoomTransform) => {
+        const params = new URLSearchParams(window.location.search);
+        params.set('x', transform.x.toFixed(2));
+        params.set('y', transform.y.toFixed(2));
+        params.set('zoom', transform.k.toFixed(2));
+        const newUrl = `${window.location.pathname}?${params.toString()}`;
+        window.history.replaceState({}, '', newUrl);
+    };
+
+    useEffect(() => {
+        if (!svgRef.current) return;
+
+        const svg = d3.select(svgRef.current);
+
+        // SVGサイズを更新（ウィンドウ全体）
+        svg.attr('width', '100%')
+            .attr('height', '100%');
+
+        // ズーム動作を初期化（最初の1回のみ）
+        if (!zoomRef.current) {
+            // ルートグループを作成
+            rootGRef.current = svg.append('g').attr('transform', 'translate(10,10)');
+
+            // レンダラーを初期化
+            rendererRef.current = new PadNodeRenderer(rootGRef.current);
+
+            // ズーム動作を設定（パンとズーム）
+            zoomRef.current = d3.zoom<SVGSVGElement, unknown>()
+                .scaleExtent([0.1, 4]) // 0.1倍〜4倍までズーム可能
+                .on('zoom', (event) => {
+                    if (rootGRef.current) {
+                        rootGRef.current.attr('transform', event.transform.toString());
+                        // URLパラメータを更新
+                        updateUrlParams(event.transform);
+                    }
+                });
+
+            // SVGにズーム動作を適用
+            svg.call(zoomRef.current);
+
+            // URLパラメータから初期位置を設定
+            const initialTransform = getInitialTransform();
+            svg.call(zoomRef.current.transform, initialTransform);
+        }
+
+        // データ結合パターンでレンダリング
+        rendererRef.current?.render([layout]);
+
+    }, [layout]);
+
     return (
-        <div style={{ overflow: 'auto', border: '1px solid #ccc', padding: '10px' }}>
-            <svg width={layout.width + 20} height={Math.max(666, layout.height + 50)}>
-                <g transform="translate(10,10)">
-                    <RenderNode layout={layout} />
-                </g>
-            </svg>
+        <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            width: '100vw',
+            height: '100vh',
+            overflow: 'auto',
+            zIndex: 0
+        }}>
+            <svg ref={svgRef} style={{ minWidth: '100%', minHeight: '100%' }}></svg>
         </div>
     );
-};
-
-const RenderNode: React.FC<{ layout: LayoutNode }> = ({ layout }) => {
-    const { padNode, x, y, width, height, children, label, condition } = layout;
-
-    switch (padNode.type) {
-        case 'sequence':
-            // Sequence just renders children offset by their Y
-            return (
-                <g transform={`translate(${x},${y})`}>
-                    {children.map((child, i) => (
-                        <RenderNode key={i} layout={child} />
-                    ))}
-                </g>
-            );
-
-        case 'block':
-            // START/END Block Layout
-            // layout.ts:
-            // children[0] (seq) is at x = 30 (centerLineX), y = 50 (start + gap)
-            // Start Node at (0, 0)
-
-            const startX = 0;
-            const startY = 0;
-            // Use "START" as requested
-            const startLabel = "START";
-            const startW = StartBlockGeometry.calculateWidth(startLabel);
-            const startH = 30;
-
-            // End Node at bottom
-            const endH = 30;
-            // EndBlockGeometry has fixed width 60
-            const endW = 60;
-
-            const centerX = startW / 2;
-            // Align End block center to the vertical line (centerX)
-            const endX = centerX - (endW / 2);
-
-            // Total Height calculation in layout.ts matches this structure
-            // We can infer Y position from layout height or re-calculate
-            const endY = height - endH;
-
-            return (
-                <g transform={`translate(${x},${y})`}>
-                    <StartRenderer x={startX} y={startY} label={startLabel} />
-
-                    {/* Vertical Line connecting Start Bottom-Center to End Top-Center */}
-                    <line
-                        x1={centerX}
-                        y1={startY + startH}
-                        x2={centerX}
-                        y2={endY}
-                        stroke="black"
-                        strokeWidth="1.5"
-                    />
-
-                    {/* Render Children (Sequence) */}
-                    {children.map((child, i) => (
-                        <g key={i} transform={`translate(0, 0)`}>
-                            <RenderNode layout={child} />
-                        </g>
-                    ))}
-
-                    <EndRenderer x={endX} y={endY} />
-                </g>
-            );
-
-        case 'command':
-            return (
-                <g transform={`translate(${x},${y})`}>
-                    <rect x={0} y={0} width={width} height={height} stroke="black" fill="white" />
-                    <text x={5} y={25} fontFamily="monospace" fontSize={14}>{label}</text>
-                </g>
-            );
-
-        case 'if':
-            return (
-                <IfRenderer
-                    layout={layout}
-                    renderChild={(child) => <RenderNode layout={child} />}
-                />
-            );
-        case 'loop':
-            const bodyLayout = children[0];
-            const barWidth = 30;
-            return (
-                <g transform={`translate(${x},${y})`}>
-                    {/* Condition Bar */}
-                    <rect x={0} y={0} width={barWidth} height={height} stroke="black" fill="#f0f0f0" />
-                    <text
-                        x={15} y={height / 2}
-                        textAnchor="middle"
-                        transform={`rotate(-90, 15, ${height / 2})`}
-                        fontFamily="monospace" fontSize={12}
-                    >
-                        {condition}
-                    </text>
-
-                    {/* Body */}
-                    <g transform={`translate(${barWidth}, 0)`}>
-                        <RenderNode layout={bodyLayout} />
-                    </g>
-                </g>
-            )
-
-        default:
-            return null;
-    }
 };

@@ -1,65 +1,88 @@
-import React from 'react';
+import * as d3 from 'd3';
 import { IfBlockGeometry } from './IfBlockGeometry';
-import type { IfRendererProps } from './IfRendererProps';
+import type { LayoutNode } from '../../utils/layout';
 
-export const IfRenderer: React.FC<IfRendererProps> = ({ layout, renderChild }) => {
+/**
+ * D3.jsでIF条件ブロック（くさび形）を描画します
+ * @param parent 親のD3セレクション (SVGGElement)
+ * @param layout レイアウトノード
+ * @param renderChildFn 子ノードを再帰描画するための関数
+ */
+export function renderIfBlock(
+    parent: d3.Selection<SVGGElement, unknown, null, undefined>,
+    layout: LayoutNode,
+    renderChildFn: (parent: d3.Selection<SVGGElement, unknown, null, undefined>, layout: LayoutNode) => void
+) {
     const { x, y, children, condition } = layout;
 
-    // 形状計算クラスのインスタンス化
     const geometry = new IfBlockGeometry(layout);
-
-    // 各頂点の取得（描画に使用）
     const tr = geometry.getTopRight();
     const br = geometry.getBottomRight();
-    // ノッチは条件テキストの配置に使用
     const notch = geometry.getNotch();
-    // ポリゴン文字列
     const points = geometry.getPolygonPoints();
 
-    // 子供のレイアウト
     const thenLayout = children[0];
     const elseLayout = children.length > 1 ? children[1] : null;
 
-    // 条件テキストのX位置: (くさびの幅 - ノッチ深さ) / 2 ... の意図だが、
-    // 正確には (0 + NotchX) / 2 あたりが重心に近い。
-    // 以前のロジック: (w - notch) / 2 -> (tr.x - 15) / 2 ~= notch.x / 2
     const textX = notch.x / 2;
     const textY = notch.y;
 
-    return (
-        <g transform={`translate(${x},${y})`}>
-            {/* 条件の形状 (ポリゴン) */}
-            <polygon points={points} stroke="black" fill="#fff" strokeWidth="1.5" />
+    const g = parent.append('g').attr('transform', `translate(${x},${y})`);
 
-            {/* 条件テキスト */}
-            <text
-                x={textX} y={textY}
-                textAnchor="middle"
-                alignmentBaseline="middle"
-                fontFamily="monospace" fontSize={14} fontWeight="bold"
-            >
-                {condition}
-            </text>
+    // 条件の形状 (ポリゴン)
+    g.append('polygon')
+        .attr('points', points)
+        .attr('stroke', 'black')
+        .attr('fill', '#fff')
+        .attr('stroke-width', 1.5);
 
-            {/* True分岐の接続線 (右上頂点からThenブロックへ) */}
-            <line x1={tr.x} y1={tr.y} x2={thenLayout.x} y2={tr.y} stroke="black" />
-            <text x={tr.x - 5} y={tr.y - 5} textAnchor="end" fontSize={12} fontFamily="monospace" fontWeight="bold">T</text>
+    // 条件テキスト
+    g.append('text')
+        .attr('x', textX)
+        .attr('y', textY)
+        .attr('text-anchor', 'middle')
+        .attr('alignment-baseline', 'middle')
+        .attr('font-family', 'monospace')
+        .attr('font-size', 14)
+        .attr('font-weight', 'bold')
+        .text(condition || '?');
 
-            <g transform={`translate(0, 0)`}>
-                {renderChild(thenLayout)}
-            </g>
+    // True分岐の接続線
+    g.append('line')
+        .attr('x1', tr.x).attr('y1', tr.y)
+        .attr('x2', thenLayout.x).attr('y2', tr.y)
+        .attr('stroke', 'black');
 
-            {/* False分岐の接続線 (右下頂点からElseブロックへ) */}
-            {elseLayout && (
-                <>
-                    <line x1={br.x} y1={br.y} x2={elseLayout.x} y2={br.y} stroke="black" />
-                    <text x={br.x - 5} y={br.y - 5} textAnchor="end" fontSize={12} fontFamily="monospace" fontWeight="bold">F</text>
+    g.append('text')
+        .attr('x', tr.x - 5)
+        .attr('y', tr.y - 5)
+        .attr('text-anchor', 'end')
+        .attr('font-size', 12)
+        .attr('font-family', 'monospace')
+        .attr('font-weight', 'bold')
+        .text('T');
 
-                    <g transform={`translate(0, 0)`}>
-                        {renderChild(elseLayout)}
-                    </g>
-                </>
-            )}
-        </g>
-    );
-};
+    // Then子ノード描画
+    renderChildFn(g, thenLayout);
+
+    // False分岐（存在する場合）
+    if (elseLayout) {
+        g.append('line')
+            .attr('x1', br.x).attr('y1', br.y)
+            .attr('x2', elseLayout.x).attr('y2', br.y)
+            .attr('stroke', 'black');
+
+        g.append('text')
+            .attr('x', br.x - 5)
+            .attr('y', br.y - 5)
+            .attr('text-anchor', 'end')
+            .attr('font-size', 12)
+            .attr('font-family', 'monospace')
+            .attr('font-weight', 'bold')
+            .text('F');
+
+        renderChildFn(g, elseLayout);
+    }
+
+    return g;
+}

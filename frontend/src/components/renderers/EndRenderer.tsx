@@ -1,37 +1,48 @@
-import React from 'react';
-import type { EndRendererProps } from './EndRendererProps';
+import * as d3 from 'd3';
 import { EndBlockGeometry } from './EndBlockGeometry';
 
-export const EndRenderer: React.FC<EndRendererProps> = ({ x, y, label = "End" }) => {
+/**
+ * D3.jsでEndブロック（楕円/カプセル型）を描画します
+ * @param parent 親のD3セレクション (SVGGElement)
+ * @param x X座標
+ * @param y Y座標
+ * @param label ラベルテキスト (デフォルト: "End")
+ */
+export function renderEnd(
+    parent: d3.Selection<SVGGElement, unknown, null, undefined>,
+    x: number,
+    y: number,
+    label: string = "End"
+) {
     const geometry = new EndBlockGeometry(x, y);
     const width = geometry.getWidth();
     const height = geometry.getHeight();
     const rx = height / 2;
 
-    return (
-        <g>
-            <rect
-                x={geometry.getX()}
-                y={geometry.getY()}
-                width={width}
-                height={height}
-                rx={rx}
-                ry={rx}
-                stroke="black"
-                fill="white"
-                strokeWidth="1.5"
-            />
-            <text
-                x={geometry.getX() + width / 2}
-                y={geometry.getY() + height / 2}
-                textAnchor="middle"
-                alignmentBaseline="middle"
-                fontFamily="monospace"
-                fontSize={14}
-                fontWeight="bold"
-            >
-                {label}
-            </text>
-        </g>
-    );
-};
+    const g = parent.append('g');
+
+    // 楕円/カプセル型の矩形
+    g.append('rect')
+        .attr('x', geometry.getX())
+        .attr('y', geometry.getY())
+        .attr('width', width)
+        .attr('height', height)
+        .attr('rx', rx)
+        .attr('ry', rx)
+        .attr('stroke', 'black')
+        .attr('fill', 'white')
+        .attr('stroke-width', 1.5);
+
+    // ラベルテキスト
+    g.append('text')
+        .attr('x', geometry.getX() + width / 2)
+        .attr('y', geometry.getY() + height / 2)
+        .attr('text-anchor', 'middle')
+        .attr('alignment-baseline', 'middle')
+        .attr('font-family', 'monospace')
+        .attr('font-size', 14)
+        .attr('font-weight', 'bold')
+        .text(label);
+
+    return g;
+}

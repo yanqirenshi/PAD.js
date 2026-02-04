@@ -1,6 +1,7 @@
 import type { PadNode } from '../types';
 
 export interface LayoutNode {
+    id: string; // 一意のID（D3データ結合用）
     padNode: PadNode;
     x: number;
     y: number;
@@ -19,52 +20,74 @@ const CONFIG = {
     FONT_SIZE: 14,
     CHAR_WIDTH: 8, // Approx
     IF_CONDITION_WIDTH: 30, // The small wedge/box on left
-    LOOP_CONDITION_WIDTH: 30,
+    MARGIN_Y: 20, // Vertical spacing between blocks
+    GAP_X: 20, // Horizontal gap between condition and body
 };
 
+// ID生成用のカウンター
+let idCounter = 0;
+
+function generateId(prefix: string): string {
+    return `${prefix}-${idCounter++}`;
+}
+
+// ID カウンターをリセット（新しいレイアウト計算開始時）
+function resetIdCounter(): void {
+    idCounter = 0;
+}
+
 export function calculateLayout(node: PadNode): LayoutNode {
+    resetIdCounter();
+    return calculateLayoutInternal(node, 'root');
+}
+
+function calculateLayoutInternal(node: PadNode, parentPath: string): LayoutNode {
     switch (node.type) {
         case 'sequence':
-            return layoutSequence(node.children);
+            return layoutSequence(node.children, parentPath);
         case 'block':
-            return layoutBlock(node.label, node.children);
+            return layoutBlock(node.label, node.children, parentPath);
         case 'command':
-            return layoutCommand(node.label);
+            return layoutCommand(node.label, parentPath);
         case 'if':
             const ifChildren = [node.then_block];
             if (node.else_block) ifChildren.push(node.else_block);
-            return layoutIf(node.condition, ifChildren);
+            return layoutIf(node.condition, ifChildren, parentPath);
         case 'loop':
-            return layoutLoop(node.condition, node.body);
+            return layoutLoop(node.condition, node.body, parentPath);
         default:
-            // Fallback for error/unknown
             return {
+                id: generateId(parentPath),
                 padNode: node, x: 0, y: 0, width: CONFIG.MIN_WIDTH, height: CONFIG.MIN_HEIGHT, children: []
             };
     }
 }
 
-function layoutSequence(nodes: PadNode[]): LayoutNode {
-    const childrenLayouts = nodes.map(calculateLayout);
+import { StartBlockGeometry } from '../components/renderers/StartBlockGeometry';
+import { FunctionContainerGeometry } from '../components/renderers/FunctionContainerGeometry';
+
+function layoutSequence(nodes: PadNode[], parentPath: string): LayoutNode {
+    const id = generateId(`${parentPath}-seq`);
+    const childrenLayouts = nodes.map((node, index) =>
+        calculateLayoutInternal(node, `${id}-${index}`)
+    );
 
     let currentY = 0;
     let maxWidth = CONFIG.MIN_WIDTH;
 
-    childrenLayouts.forEach(child => {
+    childrenLayouts.forEach((child, index) => {
         child.y = currentY;
         currentY += child.height;
+
+        if (index < childrenLayouts.length - 1) {
+            currentY += CONFIG.MARGIN_Y;
+        }
+
         maxWidth = Math.max(maxWidth, child.width);
     });
 
-    // Stretch children to max width
-    childrenLayouts.forEach(() => {
-        // recursively stretch? For now, just set width of top level
-        // Ideally, we should propagate stretch down, but let's keep it simple.
-        // D3 renderer can draw full width based on parent.
-        // child.width = maxWidth; 
-    });
-
     return {
+        id,
         padNode: { type: 'sequence', children: nodes },
         x: 0,
         y: 0,
@@ -74,51 +97,57 @@ function layoutSequence(nodes: PadNode[]): LayoutNode {
     };
 }
 
-import { StartBlockGeometry } from '../components/renderers/StartBlockGeometry';
+function layoutBlock(label: string, children: PadNode[], parentPath: string): LayoutNode {
+    const id = generateId(`${parentPath}-block`);
+    const seqLayout = layoutSequence(children, id);
 
-function layoutBlock(label: string, children: PadNode[]): LayoutNode {
-    const seqLayout = layoutSequence(children);
-
-    // START/ENDブロックの設定
-    // Renderer uses "START", so we must use "START" here for consistent alignment
     const startNodeWidth = StartBlockGeometry.calculateWidth("START");
     const startNodeHeight = 30;
     const endNodeHeight = 30;
 
-    // STARTブロックは (0, 0) に配置 (幅60)
-    // 垂直線のX座標は 30
     const centerLineX = startNodeWidth / 2;
+    const graphWidth = Math.max(seqLayout.width + centerLineX, startNodeWidth);
 
-    // シーケンスを配置
-    // シーケンスの左端を垂直線のX座標に合わせる
-    seqLayout.x = centerLineX;
+    const paddingTop = startNodeHeight + CONFIG.MARGIN_Y;
+    const paddingBottom = CONFIG.MARGIN_Y;
+    const graphHeight = paddingTop + seqLayout.height + paddingBottom + endNodeHeight;
 
-    // 上部のパディング (STARTブロック + 垂直線の余白)
-    const paddingTop = startNodeHeight + 20;
-    seqLayout.y = paddingTop;
+    const containerPadding = FunctionContainerGeometry.PADDING;
+    const headerHeight = FunctionContainerGeometry.HEADER_HEIGHT;
 
-    // 下部のパディング (ENDブロックへの余白)
-    const paddingBottom = 20;
+    const containerWidth = graphWidth + containerPadding * 2;
+    const containerHeight = headerHeight + graphHeight + containerPadding * 2;
 
-    // 全体の高さ
-    // START(30) + Gap(20) + SeqHeight + Gap(20) + END(30)
-    const totalHeight = paddingTop + seqLayout.height + paddingBottom + endNodeHeight;
+    seqLayout.x = containerPadding + centerLineX;
+
+    const contentStartY = headerHeight + containerPadding;
+    seqLayout.y = contentStartY + paddingTop;
 
     return {
+        id,
         padNode: { type: 'block', label, children },
         x: 0,
         y: 0,
-        width: Math.max(seqLayout.width + centerLineX, startNodeWidth),
-        height: totalHeight,
+        width: containerWidth,
+        height: containerHeight,
         children: [seqLayout],
         label
     }
 }
 
-function layoutCommand(label: string): LayoutNode {
-    const textWidth = label.length * CONFIG.CHAR_WIDTH + 20;
+function layoutCommand(label: string, parentPath: string): LayoutNode {
+    const id = generateId(`${parentPath}-cmd`);
+
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d')!;
+    context.font = '14px monospace';
+    const textMetrics = context.measureText(label);
+
+    const textWidth = textMetrics.width + 20;
     const width = Math.max(CONFIG.MIN_WIDTH, textWidth);
+
     return {
+        id,
         padNode: { type: 'command', label },
         x: 0,
         y: 0,
@@ -129,21 +158,19 @@ function layoutCommand(label: string): LayoutNode {
     };
 }
 
-function layoutIf(condition: string, children: PadNode[]): LayoutNode {
-    const thenLayout = calculateLayout(children[0]); // children[0] is 'then' block
-    const elseLayout = children.length > 1 ? calculateLayout(children[1]) : null;
+function layoutIf(condition: string, children: PadNode[], parentPath: string): LayoutNode {
+    const id = generateId(`${parentPath}-if`);
+
+    const thenLayout = calculateLayoutInternal(children[0], `${id}-then`);
+    const elseLayout = children.length > 1 ? calculateLayoutInternal(children[1], `${id}-else`) : null;
 
     const canvas = document.createElement('canvas');
     const context = canvas.getContext('2d')!;
     context.font = '14px monospace';
-    // Ensure the condition box is wide enough for the text + padding
     const labelWidth = Math.max(context.measureText(condition).width, 40) + 60;
 
-    // x-offset for children (Wedge width)
     const childX = labelWidth;
 
-    // --- 垂直配置のロジック ---
-    // 1. Then ブロック (上)
     thenLayout.y = 0;
     thenLayout.x = childX;
 
@@ -151,19 +178,12 @@ function layoutIf(condition: string, children: PadNode[]): LayoutNode {
     const topVertexY = thenHalf;
 
     let height = 0;
-    const gap = 40; // ブロック間の最小ギャップ
-    // テキストを含み、見た目を良くするためにくさび形には最小の高さが必要
+    const gap = 40;
     const minWedgeHeight = 60;
 
     if (elseLayout) {
         const elseHalf = elseLayout.height / 2;
 
-        // 上の頂点と下の頂点の間の距離は、少なくとも minWedgeHeight 必要
-        // また、次の条件満たす必要がある: ElseTop >= ThenBottom + Gap
-        // ElseCenter - ElseHalf >= ThenHeight + Gap
-        // ElseCenter >= ThenHeight + Gap + ElseHalf
-
-        // したがって、BotVertexY (ElseCenter) は以下のようになる:
         const minBotVertexY_for_spacing = thenLayout.height + gap + elseHalf;
         const minBotVertexY_for_wedge = topVertexY + minWedgeHeight;
 
@@ -174,16 +194,14 @@ function layoutIf(condition: string, children: PadNode[]): LayoutNode {
 
         height = elseLayout.y + elseLayout.height;
     } else {
-        // Elseがない場合、下の頂点は最小くさび高さによって決まる
         height = Math.max(thenLayout.height, topVertexY + minWedgeHeight);
     }
 
-    // 右側にパディングを追加
     const width = childX + Math.max(thenLayout.width, elseLayout ? elseLayout.width : 0) + 50;
-    // 下側にパディングを追加
     const totalHeight = height + 20;
 
     return {
+        id,
         padNode: { type: 'if', condition, then_block: children[0], else_block: children.length > 1 ? children[1] : undefined },
         x: 0,
         y: 0,
@@ -195,20 +213,34 @@ function layoutIf(condition: string, children: PadNode[]): LayoutNode {
     }
 }
 
-function layoutLoop(condition: string, body: PadNode): LayoutNode {
-    const bodyLayout = calculateLayout(body);
-    const condWidth = CONFIG.LOOP_CONDITION_WIDTH;
+function layoutLoop(condition: string, body: PadNode, parentPath: string): LayoutNode {
+    const id = generateId(`${parentPath}-loop`);
+    const bodyLayout = calculateLayoutInternal(body, `${id}-body`);
 
-    // Body is to the right
-    bodyLayout.x = condWidth;
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d')!;
+    context.font = '14px monospace';
+    const textMetrics = context.measureText(condition);
+
+    const doubleLineWidth = 10;
+    const textPadding = 40;
+    const conditionBoxWidth = doubleLineWidth + textMetrics.width + textPadding;
+
+    const boxWidth = Math.max(CONFIG.MIN_WIDTH, conditionBoxWidth);
+
+    bodyLayout.x = boxWidth + CONFIG.GAP_X;
     bodyLayout.y = 0;
 
+    const width = boxWidth + CONFIG.GAP_X + bodyLayout.width;
+    const height = Math.max(CONFIG.MIN_HEIGHT, bodyLayout.height);
+
     return {
+        id,
         padNode: { type: 'loop', condition, body },
         x: 0,
         y: 0,
-        width: condWidth + bodyLayout.width,
-        height: bodyLayout.height, // Usually loop bar matches body height
+        width,
+        height,
         children: [bodyLayout],
         condition
     }
