@@ -1,0 +1,10 @@
+{
+    "name": "pad-workspace",
+    "private": true,
+    "scripts": {
+        "dev": "pnpm --filter @pad/app dev",
+        "build": "pnpm --filter @pad/core build && pnpm --filter @pad/app build",
+        "build:lib": "pnpm --filter @pad/core build",
+        "docs": "pnpm --filter @pad/core docs"
+    }
+}

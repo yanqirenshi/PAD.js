@@ -1,0 +1,62 @@
+{
+    "name": "@pad/core",
+    "version": "0.1.0",
+    "type": "module",
+    "main": "./src/index.ts",
+    "module": "./src/index.ts",
+    "types": "./src/index.ts",
+    "exports": {
+        ".": {
+            "import": "./src/index.ts",
+            "types": "./src/index.ts"
+        }
+    },
+    "publishConfig": {
+        "main": "./dist/index.js",
+        "module": "./dist/index.js",
+        "types": "./dist/index.d.ts",
+        "exports": {
+            ".": {
+                "import": "./dist/index.js",
+                "types": "./dist/index.d.ts"
+            }
+        }
+    },
+    "files": [
+        "dist"
+    ],
+    "scripts": {
+        "build": "tsc",
+        "docs": "typedoc"
+    },
+    "dependencies": {
+        "acorn": "^8.15.0",
+        "d3": "^7.9.0"
+    },
+    "peerDependencies": {
+        "react": "^18.0.0 || ^19.0.0",
+        "react-dom": "^18.0.0 || ^19.0.0"
+    },
+    "devDependencies": {
+        "@types/acorn": "^4.0.6",
+        "@types/d3": "^7.4.3",
+        "@types/react": "^19.2.5",
+        "@types/react-dom": "^19.2.3",
+        "react": "^19.2.0",
+        "react-dom": "^19.2.0",
+        "typedoc": "^0.28.16",
+        "typescript": "~5.9.3"
+    },
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/user/pad"
+    },
+    "keywords": [
+        "pad",
+        "diagram",
+        "flowchart",
+        "parser",
+        "d3"
+    ],
+    "license": "MIT"
+}
