@@ -100,6 +100,7 @@ wasm-pack build --target web --out-dir pkg
 - UIは日本語で表示
 - コードのコメントも日本語で記載
 - **Implementation Plan は日本語で作成すること**
+- **Walkthrough は日本語で作成すること**
 
 ## ドキュメント生成
 

@@ -4,6 +4,11 @@ import init, { parse_rust_code } from '../../../backend/pkg/backend'
 import { parse_js_code, D3PadRenderer } from '@pad/core'
 import type { PadNode } from '@pad/core'
 
+import { GitHubPanel } from './components/GitHubPanel';
+
+import { Box, Paper, Tabs, Tab, TextField, Button, Select, MenuItem, FormControl, InputLabel } from '@mui/material';
+import type { SelectChangeEvent } from '@mui/material';
+
 type Language = 'rust' | 'javascript';
 
 const PANEL_MIN_WIDTH = 222;
@@ -11,6 +16,7 @@ const PANEL_MAX_WIDTH = 555;
 const PANEL_DEFAULT_WIDTH = 333;
 
 function App() {
+  const [mode, setMode] = useState<'manual' | 'github'>('manual');
   const [language, setLanguage] = useState<Language>('rust');
   const [inputCode, setInputCode] = useState<string>(`fn main() {
     let i = 0;
@@ -60,7 +66,7 @@ fn greet() {
     };
   }, [handleMouseMove, handleMouseUp]);
 
-  const handleLanguageChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+  const handleLanguageChange = (e: SelectChangeEvent) => {
     const lang = e.target.value as Language;
     setLanguage(lang);
     if (lang === 'javascript') {
@@ -92,13 +98,13 @@ fn greet() {
     }
   };
 
-  const handleParse = () => {
+  const processCode = (code: string, lang: Language) => {
     try {
       let result = "";
-      if (language === 'rust') {
-        result = parse_rust_code(inputCode);
+      if (lang === 'rust') {
+        result = parse_rust_code(code);
       } else {
-        result = parse_js_code(inputCode);
+        result = parse_js_code(code);
       }
 
       const parsed: PadNode = JSON.parse(result)
@@ -113,60 +119,119 @@ fn greet() {
       setError(`Error: ${e}`)
       setPadNode(null);
     }
+  };
+
+  const handleManualParse = () => {
+    processCode(inputCode, language);
   }
+
+  const handleModeChange = (event: React.SyntheticEvent, newValue: 'manual' | 'github') => {
+    setMode(newValue);
+  };
+
+  const resizeHandleStyle: React.CSSProperties = {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    width: '6px',
+    height: '100%',
+    cursor: 'ew-resize',
+    backgroundColor: 'transparent',
+    zIndex: 1
+  };
 
   return (
     <>
       {/* フローティング入力パネル */}
-      <div style={{
-        position: 'fixed',
-        top: '20px',
-        bottom: '20px',
-        left: '20px',
-        zIndex: 1000,
-        backgroundColor: 'rgba(255, 255, 255, 0.95)',
-        padding: '15px',
-        borderRadius: '8px',
-        boxShadow: '0 2px 10px rgba(0, 0, 0, 0.2)',
-        width: `${panelWidth}px`,
-        display: 'flex',
-        flexDirection: 'column' as const,
-        overflow: 'hidden'
-      }}>
-        <div style={{ marginBottom: '10px', textAlign: 'left' }}>
-          <label style={{ marginRight: '10px' }}>言語:</label>
-          <select value={language} onChange={handleLanguageChange} style={{ padding: '5px' }}>
-            <option value="rust">Rust</option>
-            <option value="javascript">JavaScript</option>
-          </select>
-        </div>
+      <Paper
+        elevation={3}
+        sx={{
+          position: 'fixed',
+          top: 20,
+          bottom: 20,
+          left: 20,
+          zIndex: 1000,
+          padding: 2,
+          borderRadius: 2,
+          width: panelWidth,
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+          backgroundColor: 'rgba(255, 255, 255, 0.95)',
+          backdropFilter: 'blur(5px)'
+        }}
+      >
+        <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
+          <Tabs value={mode} onChange={handleModeChange} aria-label="mode tabs" variant="fullWidth">
+            <Tab label="手動入力" value="manual" />
+            <Tab label="GitHub" value="github" />
+          </Tabs>
+        </Box>
 
-        <textarea
-          value={inputCode}
-          onChange={(e) => setInputCode(e.target.value)}
-          style={{ width: '100%', fontFamily: 'monospace', boxSizing: 'border-box', flex: 1, resize: 'none' }}
-        />
-        <div style={{ margin: '10px 0' }}>
-          <button onClick={handleParse}>変換 & 描画</button>
-        </div>
-        {error && <div style={{ color: 'red' }}>{error}</div>}
+        {mode === 'manual' ? (
+          <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+            <Box sx={{ mb: 2, mt: 1 }}>
+              <FormControl fullWidth size="small">
+                <InputLabel id="language-select-label">言語</InputLabel>
+                <Select
+                  labelId="language-select-label"
+                  value={language}
+                  label="言語"
+                  onChange={handleLanguageChange}
+                >
+                  <MenuItem value="rust">Rust</MenuItem>
+                  <MenuItem value="javascript">JavaScript</MenuItem>
+                </Select>
+              </FormControl>
+            </Box>
+
+            <TextField
+              multiline
+              minRows={10}
+              variant="outlined"
+              value={inputCode}
+              onChange={(e) => setInputCode(e.target.value)}
+              sx={{
+                flex: 1,
+                fontFamily: 'monospace',
+                '& .MuiInputBase-root': {
+                  height: '100%',
+                  alignItems: 'flex-start',
+                  fontFamily: 'monospace'
+                }
+              }}
+              InputProps={{
+                style: { fontFamily: 'monospace' }
+              }}
+            />
+
+            <Box sx={{ mt: 2 }}>
+              <Button
+                variant="contained"
+                color="primary"
+                fullWidth
+                onClick={handleManualParse}
+              >
+                変換 & 描画
+              </Button>
+            </Box>
+          </Box>
+        ) : (
+          <GitHubPanel onFileSelect={(code, lang) => {
+            processCode(code, lang);
+          }} />
+        )}
+
+        {error && <Box sx={{ color: 'error.main', mt: 2, fontSize: '0.875rem' }}>{error}</Box>}
 
         {/* リサイズハンドル */}
         <div
           onMouseDown={handleMouseDown}
-          style={{
-            position: 'absolute',
-            top: 0,
-            right: 0,
-            width: '6px',
-            height: '100%',
-            cursor: 'ew-resize',
-            backgroundColor: 'transparent'
-          }}
+          style={resizeHandleStyle}
           onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'rgba(0, 0, 0, 0.1)')}
           onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
         />
-      </div>
+      </Paper>
 
       {/* 全画面SVG表示エリア */}
       {padNode && (
